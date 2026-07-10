@@ -1,0 +1,83 @@
+collab-editor/
+│
+├── cmd/
+│   ├── gateway/
+│   │   └── main.go                # Entrypoint: starts HTTP server, WS upgrade handler,
+│   │                               # wires up auth middleware, connects to Redis/NATS
+│   │
+│   └── session/
+│       └── main.go                # Entrypoint: starts session-owner service,
+│                                   # subscribes to assigned doc channels, manages actor pool
+│
+├── internal/
+│   │
+│   ├── crdt/
+│   │   ├── rga.go                 # Core CRDT implementation (e.g., Replicated Growable Array)
+│   │   │                          # — insert/delete ops, tombstones, ID generation
+│   │   ├── document.go            # Wraps CRDT into a "Document" type: apply(op), toString(),
+│   │   │                          # snapshot(), loadSnapshot()
+│   │   ├── op.go                  # Op types (Insert, Delete), serialization (JSON/protobuf)
+│   │   └── crdt_test.go           # Property-based tests: random op orderings converge
+│   │
+│   ├── transport/
+│   │   ├── ws_handler.go          # Upgrades HTTP→WS, reads/writes messages, ping/pong keepalive
+│   │   ├── protocol.go            # Wire message schema (join, op, cursor, presence, ack)
+│   │   └── client.go              # Represents one connected client: send channel, read loop
+│   │
+│   ├── session/
+│   │   ├── owner.go               # The actor: one goroutine per doc, select loop over
+│   │   │                          # incoming ops / subscribe channel / shutdown signal
+│   │   ├── registry.go            # Tracks which node owns which doc (routing table in Redis)
+│   │   └── presence.go            # Tracks connected users + cursor positions per doc
+│   │
+│   ├── pubsub/
+│   │   ├── redis_pubsub.go        # Publish/Subscribe abstraction over Redis
+│   │   └── interface.go           # PubSub interface so you can swap Redis ↔ NATS in tests
+│   │
+│   ├── persistence/
+│   │   ├── postgres.go            # Doc metadata, users, permissions (CRUD)
+│   │   ├── oplog.go               # Append-only op log writer/reader
+│   │   └── snapshot.go            # Periodic snapshotting logic, load-on-startup
+│   │
+│   ├── auth/
+│   │   ├── jwt.go                 # Token generation/validation
+│   │   └── middleware.go          # HTTP middleware enforcing auth on WS upgrade + REST routes
+│   │
+│   └── observability/
+│       ├── metrics.go             # Prometheus counters/histograms (op latency, conn count)
+│       └── tracing.go             # OpenTelemetry spans across gateway → session → DB
+│
+├── api/
+│   └── openapi.yaml                # REST endpoints: create doc, list docs, share/permissions
+│
+├── web/                             # Frontend (React + TS)
+│   ├── src/
+│   │   ├── editor/
+│   │   │   ├── MonacoBinding.ts    # Binds local CRDT replica to Monaco editor events
+│   │   │   └── RemoteCursor.tsx    # Renders other users' cursors/selections
+│   │   ├── crdt/
+│   │   │   └── clientReplica.ts    # Client-side mirror of the CRDT logic (TS port)
+│   │   ├── ws/
+│   │   │   └── connection.ts       # WS client with reconnect/backoff
+│   │   └── App.tsx
+│   └── package.json
+│
+├── deploy/
+│   ├── docker/
+│   │   ├── Dockerfile.gateway
+│   │   └── Dockerfile.session
+│   ├── k8s/
+│   │   ├── gateway-deployment.yaml
+│   │   ├── session-statefulset.yaml   # StatefulSet (not Deployment) since session owners are stateful
+│   │   └── redis.yaml
+│   └── docker-compose.yaml            # Local dev: gateway + session + redis + postgres
+│
+├── load-test/
+│   └── ws_load_test.go             # Go-based concurrent WS client simulator, measures
+│                                   # p50/p95/p99 op propagation latency
+│
+├── .github/workflows/
+│   └── ci.yaml                     # Lint, test (incl. -race), build, push image
+│
+├── go.mod / go.sum
+└── README.md                       # Architecture diagram, setup steps, benchmark results
