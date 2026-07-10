@@ -1,0 +1,33 @@
+┌───────────────────────────┐
+                                   │        Client (Browser)    │
+                                   │  Monaco/CodeMirror + WS    │
+                                   │  Local CRDT replica        │
+                                   └──────────────┬─────────────┘
+                                                  │ WebSocket (wss://)
+                                                  ▼
+                          ┌───────────────────────────────────────────┐
+                          │              Gateway Layer                  │
+                          │   (stateless, N replicas behind LB)          │
+                          │   - Auth (JWT validation)                    │
+                          │   - WS connection lifecycle                  │
+                          │   - Routes msgs to correct session owner     │
+                          └───────────────┬───────────────────────────┘
+                                          │
+                         Redis Pub/Sub or NATS (cross-node fan-out)
+                                          │
+                          ┌───────────────▼───────────────────────────┐
+                          │          Session Owner Layer                │
+                          │  (stateful, one logical owner per doc)      │
+                          │  - Holds in-memory CRDT state                │
+                          │  - Applies/broadcasts ops                    │
+                          │  - Presence/cursor tracking                  │
+                          └───────────────┬───────────────────────────┘
+                                          │
+                     ┌────────────────────┼────────────────────┐
+                     ▼                    ▼                    ▼
+              ┌────────────┐      ┌──────────────┐     ┌───────────────┐
+              │ PostgreSQL │      │  Op-log store │     │  Metrics/Trace │
+              │ (metadata, │      │ (S3/Postgres, │     │ (Prometheus,   │
+              │ users,     │      │  append-only) │     │  OTel, Grafana)│
+              │ permissions)│     └──────────────┘     └───────────────┘
+              └────────────┘
