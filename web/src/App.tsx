@@ -1,7 +1,9 @@
 import './App.css'
 
 function App() {
-  return ()
+  return(
+    <div>Collaborative Code Editor</div>
+  )
 }
 
 export default App
