@@ -9,7 +9,7 @@ type Message struct {
 	Name    string          `json:"name,omitempty"`
 	Text    string          `json:"text,omitempty"`
 	Users   []Presence      `json:"users,omitempty"`
-	PayLoad json.RawMessage `json:"payLoad,omitempty"`
+	Payload json.RawMessage `json:"payload,omitempty"`
 	Cursor  *Cursor         `json:"cursor,omitempty"`
 }
 

@@ -83,7 +83,7 @@ func (c *client) readPump() {
 		case "join":
 			c.join(message)
 		case "op":
-			c.applyOp(message.PayLoad)
+			c.applyOp(message.Payload)
 		case "cursor":
 			c.updateCursor(message.Cursor)
 		default:
@@ -149,7 +149,7 @@ func (c *client) applyOp(raw json.RawMessage) {
 	}
 	c.room.seenOps[op.OpID] = struct{}{}
 	c.room.mu.Unlock()
-	c.room.broadcast(Message{Type: "op", PayLoad: raw})
+	c.room.broadcast(Message{Type: "op", Payload: raw})
 }
 
 func (c *client) updateCursor(cursor *Cursor) {

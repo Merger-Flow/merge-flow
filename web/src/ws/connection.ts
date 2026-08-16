@@ -6,6 +6,7 @@ type WsMessage ={
     payLoad:CrdtOp;
 };
 
+
 class WsConnection{
     private rws : ReconnectingWebSocket;
 
@@ -31,10 +32,27 @@ class WsConnection{
             }
         });
 
-        this.rws.addEventListener("open",() => console.log("Web socket connected to backend"));
+        this.rws.addEventListener("open",() => {
+
+            console.log("Web socket connected to backend")
+        
+            this.join("test-document", "user-1", "Electrical Student");});
         this.rws.addEventListener("close",() => console.log("Web socket disconnected"));
     }
+    join(documentId: string, userId: string, userName: string) {
+        const msg = {
+            type: "join",
+            docId: documentId,
+            userId: userId,
+            name: userName,
+        };
 
+        if (this.rws.readyState === WebSocket.OPEN) {
+            this.rws.send(JSON.stringify(msg));
+        } else {
+            console.warn("Socket not connected yet");
+    }
+}
     sendOp(op:CrdtOp){
         if(this.rws.readyState===WebSocket.OPEN){
             const msg:WsMessage={type:"op",payLoad:op};
