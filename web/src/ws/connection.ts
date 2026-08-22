@@ -1,9 +1,15 @@
 import ReconnectingWebSocket from "reconnecting-websocket";
 import type { CrdtOp } from "../editor/MonacoBinding";
+import type { Cursor, PresenceUser } from "../editor/RemoteCursor";
+
+type PresenceKind = "cursor" | "presence" | "snapshot" | "leave";
 
 type WsMessage ={
-    type:"op";
-    payLoad:CrdtOp;
+    type:"op" | PresenceKind | "error";
+    payLoad?:CrdtOp;
+    payload?:CrdtOp;
+    users?:PresenceUser[];
+    cursor?:Cursor;
 };
 
 
@@ -11,6 +17,7 @@ class WsConnection{
     private rws : ReconnectingWebSocket;
 
     private opListeners: Array<(op:CrdtOp) => void >=[];
+    private presenceListeners: Array<(users:PresenceUser[], kind:PresenceKind) => void >=[];
 
     constructor(url: string){
         this.rws=new ReconnectingWebSocket(url,[],{
@@ -23,8 +30,16 @@ class WsConnection{
                 const msg:WsMessage=JSON.parse(event.data);
 
                 if(msg.type==="op"){
+                    const op=msg.payload ?? msg.payLoad;
+                    if(!op) return;
                     for(const listener of this.opListeners){
-                        listener(msg.payLoad);
+                        listener(op);
+                    }
+                }
+                else if(msg.type==="cursor" || msg.type==="presence" || msg.type==="snapshot" || msg.type==="leave"){
+                    const users=msg.users ?? [];
+                    for(const listener of this.presenceListeners){
+                        listener(users, msg.type);
                     }
                 }
             } catch (error) {
@@ -55,7 +70,7 @@ class WsConnection{
 }
     sendOp(op:CrdtOp){
         if(this.rws.readyState===WebSocket.OPEN){
-            const msg:WsMessage={type:"op",payLoad:op};
+            const msg:WsMessage={type:"op",payload:op};
             this.rws.send(JSON.stringify(msg));
         }
         else{
@@ -63,8 +78,18 @@ class WsConnection{
         }
     }
 
+    sendCursor(cursor:Cursor){
+        if(this.rws.readyState===WebSocket.OPEN){
+            this.rws.send(JSON.stringify({type:"cursor",cursor}));
+        }
+    }
+
     onOP(callback: (Op:CrdtOp) =>void){
         this.opListeners.push(callback);
+    }
+
+    onPresence(callback: (users:PresenceUser[], kind:PresenceKind) =>void){
+        this.presenceListeners.push(callback);
     }
 }
 
