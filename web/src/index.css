@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+@theme {
+  --color-vscode-bg: #1e1e1e;
+  --color-vscode-sidebar: #252526;
+  --color-vscode-activity: #333333;
+  --color-vscode-panel: #181818;
+  --color-vscode-status: #007acc;
+  --color-vscode-border: #3c3c3c;
+  --color-vscode-text: #cccccc;
+  --color-vscode-muted: #858585;
+  --color-vscode-active-tab: #1e1e1e;
+  --color-vscode-inactive-tab: #2d2d2d;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
