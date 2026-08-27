@@ -6,7 +6,7 @@ export function Panel(){
                 <span className="cursor-pointer hover:text-white">Output</span>
                 <span className="cursor-pointer border-b border-white pb-0.5 text-white">Terminal</span>
             </div>
-            <div className="px-5 py-2.5 font-mono text-[13px] text-[]">
+            <div className="px-5 py-2.5 font-mono text-[13px] text-vscode-text">
                 user@collab-editor:~$ npm run dev<br/>
                 VITE ready in 150ms<br/>
                 Local:https://localhost:5173/

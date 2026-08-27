@@ -1,7 +1,7 @@
+import { Shell } from './layout/Shell'
+
 function App() {
-  return(
-    <div>Collaborative Code Editor</div>
-  )
+  return <Shell />
 }
 
 export default App

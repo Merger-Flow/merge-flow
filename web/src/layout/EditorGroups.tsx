@@ -49,7 +49,7 @@ export function EditorGroups(){
     return(
         <div className="col-start-3 row-start-1 flex h-full flex-col overflow-hidden bg-vscode-bg">
             <div className="flex-shrink-0 bg-vscode-sidebar text-[13px]">
-                <div className="cursor-pointer border-t border-[] bg-vscode-active-tab px-[15px] py-[8px] text-white">
+                <div className="cursor-pointer border-t border-vscode-border bg-vscode-active-tab px-[15px] py-[8px] text-white">
                     clientReplica.ts
                 </div>
             </div>
