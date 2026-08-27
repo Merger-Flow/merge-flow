@@ -14,7 +14,6 @@ export interface MonacoBindingOptions{
 }
 
 export class MonacoBinding{
-    private editor:monaco.editor.ICodeEditor;
     private model:monaco.editor.ITextModel;
     private replica: ReplicaLike;
     private onLocalOp:(op:CrdtOp)=>void;
@@ -22,7 +21,6 @@ export class MonacoBinding{
     private contentListener:monaco.IDisposable;
     
     constructor(editor:monaco.editor.ICodeEditor,replica:ReplicaLike,options:MonacoBindingOptions){
-        this.editor=editor;
         this.replica=replica;
         this.onLocalOp=options.onLocalOp;
         const model=editor.getModel();
