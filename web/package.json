@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test:ws": "node --test --experimental-strip-types src/ws/*.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

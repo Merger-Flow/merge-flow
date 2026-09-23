@@ -1,96 +1,143 @@
-import ReconnectingWebSocket from "reconnecting-websocket";
+import ReconnectingWebSocket, {
+    type Options as ReconnectingWebSocketOptions,
+} from "reconnecting-websocket";
 import type { CrdtOp } from "../editor/MonacoBinding";
 import type { Cursor, PresenceUser } from "../editor/RemoteCursor";
+import { OutboundMessageQueue } from "./messageQueue.ts";
 
-type PresenceKind = "cursor" | "presence" | "snapshot" | "leave";
+export type PresenceKind = "cursor" | "presence" | "snapshot" | "leave";
 
-type WsMessage ={
-    type:"op" | PresenceKind | "error";
-    payLoad?:CrdtOp;
-    payload?:CrdtOp;
-    users?:PresenceUser[];
-    cursor?:Cursor;
+type WsMessage = {
+    type: "op" | PresenceKind | "error";
+    payLoad?: CrdtOp;
+    payload?: CrdtOp;
+    users?: PresenceUser[];
+    cursor?: Cursor;
 };
 
+export type WsConnectionConfig = {
+    url: string;
+    documentId: string;
+    userId: string;
+    userName: string;
+};
 
-class WsConnection{
-    private rws : ReconnectingWebSocket;
+type SocketLike = {
+    readyState: number;
+    send(data: string): void;
+    close(): void;
+    addEventListener(type: string, listener: (event: { data?: string }) => void): void;
+};
 
-    private opListeners: Array<(op:CrdtOp) => void >=[];
-    private presenceListeners: Array<(users:PresenceUser[], kind:PresenceKind) => void >=[];
+type SocketFactory = (url: string, options: ReconnectingWebSocketOptions) => SocketLike;
 
-    constructor(url: string){
-        this.rws=new ReconnectingWebSocket(url,[],{
-            connectionTimeout:2000,
-            maxRetries:10,
+const OPEN_STATE = 1;
+const defaultSocketFactory: SocketFactory = (url, options) =>
+    new ReconnectingWebSocket(url, [], options);
+
+export class WsConnection {
+    private readonly socket: SocketLike;
+    private readonly pending = new OutboundMessageQueue<string>();
+    private readonly opListeners = new Set<(op: CrdtOp) => void>();
+    private readonly presenceListeners = new Set<
+        (users: PresenceUser[], kind: PresenceKind) => void
+    >();
+    private config: WsConnectionConfig;
+
+    constructor(config: WsConnectionConfig, socketFactory: SocketFactory = defaultSocketFactory) {
+        this.config = config;
+        this.socket = socketFactory(config.url, {
+            connectionTimeout: 2000,
+            maxRetries: 10,
         });
 
-        this.rws.addEventListener("message",(event)=>{
-            try {
-                const msg:WsMessage=JSON.parse(event.data);
+        this.socket.addEventListener("message", (event) => this.handleMessage(event.data));
+        this.socket.addEventListener("open", () => this.handleOpen());
+        this.socket.addEventListener("close", () => console.log("Web socket disconnected"));
+    }
 
-                if(msg.type==="op"){
-                    const op=msg.payload ?? msg.payLoad;
-                    if(!op) return;
-                    for(const listener of this.opListeners){
-                        listener(op);
-                    }
-                }
-                else if(msg.type==="cursor" || msg.type==="presence" || msg.type==="snapshot" || msg.type==="leave"){
-                    const users=msg.users ?? [];
-                    for(const listener of this.presenceListeners){
-                        listener(users, msg.type);
-                    }
-                }
-            } catch (error) {
-                console.error("Failed to parse WS message",error);
+    join(documentId: string, userId: string, userName: string): void {
+        this.config = { url: this.config.url, documentId, userId, userName };
+        if (this.socket.readyState === OPEN_STATE) this.sendNow(this.joinMessage());
+    }
+
+    sendOp(op: CrdtOp): void {
+        this.sendNowOrQueue({ type: "op", payload: op });
+    }
+
+    sendCursor(cursor: Cursor): void {
+        this.sendNowOrQueue({ type: "cursor", cursor });
+    }
+
+    onOP(callback: (op: CrdtOp) => void): () => void {
+        this.opListeners.add(callback);
+        return () => this.opListeners.delete(callback);
+    }
+
+    onPresence(callback: (users: PresenceUser[], kind: PresenceKind) => void): () => void {
+        this.presenceListeners.add(callback);
+        return () => this.presenceListeners.delete(callback);
+    }
+
+    dispose(): void {
+        this.opListeners.clear();
+        this.presenceListeners.clear();
+        this.pending.flush();
+        this.socket.close();
+    }
+
+    private handleOpen(): void {
+        console.log("Web socket connected to backend");
+        this.sendNow(this.joinMessage());
+        for (const message of this.pending.flush()) {
+            this.sendNow(JSON.parse(message) as Record<string, unknown>);
+        }
+    }
+
+    private handleMessage(data: string | undefined): void {
+        if (!data) return;
+        try {
+            const msg: WsMessage = JSON.parse(data);
+
+            if (msg.type === "op") {
+                const op = msg.payload ?? msg.payLoad;
+                if (!op) return;
+                for (const listener of this.opListeners) listener(op);
+            } else if (
+                msg.type === "cursor" ||
+                msg.type === "presence" ||
+                msg.type === "snapshot" ||
+                msg.type === "leave"
+            ) {
+                const users = msg.users ?? [];
+                for (const listener of this.presenceListeners) listener(users, msg.type);
             }
-        });
-
-        this.rws.addEventListener("open",() => {
-
-            console.log("Web socket connected to backend")
-        
-            this.join("test-document", "user-1", "Electrical Student");});
-        this.rws.addEventListener("close",() => console.log("Web socket disconnected"));
-    }
-    join(documentId: string, userId: string, userName: string) {
-        const msg = {
-            type: "join",
-            docId: documentId,
-            userId: userId,
-            name: userName,
-        };
-
-        if (this.rws.readyState === WebSocket.OPEN) {
-            this.rws.send(JSON.stringify(msg));
-        } else {
-            console.warn("Socket not connected yet");
-    }
-}
-    sendOp(op:CrdtOp){
-        if(this.rws.readyState===WebSocket.OPEN){
-            const msg:WsMessage={type:"op",payload:op};
-            this.rws.send(JSON.stringify(msg));
-        }
-        else{
-            console.warn("Socket disconnected,connection dropping:",op);
+        } catch (error) {
+            console.error("Failed to parse WS message", error);
         }
     }
 
-    sendCursor(cursor:Cursor){
-        if(this.rws.readyState===WebSocket.OPEN){
-            this.rws.send(JSON.stringify({type:"cursor",cursor}));
+    private joinMessage(): Record<string, unknown> {
+        const { documentId, userId, userName } = this.config;
+        return { type: "join", docId: documentId, userId, name: userName };
+    }
+
+    private sendNowOrQueue(message: Record<string, unknown>): void {
+        if (this.socket.readyState === OPEN_STATE) {
+            this.sendNow(message);
+            return;
         }
+        this.pending.enqueue(JSON.stringify(message));
     }
 
-    onOP(callback: (Op:CrdtOp) =>void){
-        this.opListeners.push(callback);
-    }
-
-    onPresence(callback: (users:PresenceUser[], kind:PresenceKind) =>void){
-        this.presenceListeners.push(callback);
+    private sendNow(message: Record<string, unknown>): void {
+        this.socket.send(JSON.stringify(message));
     }
 }
 
-export const wsConnection = new WsConnection("ws://localhost:8080/ws");
+export const wsConnection = new WsConnection({
+    url: "ws://localhost:8080/ws",
+    documentId: "test-document",
+    userId: "user-1",
+    userName: "Electrical Student",
+});
