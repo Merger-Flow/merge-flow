@@ -140,3 +140,33 @@ test("unsubscribe removes an operation listener", () => {
     assert.equal(received.length, 1);
     assert.equal(received[0].opId, "op-1");
 });
+
+test("dispatches snapshots and errors through dedicated listeners", () => {
+    const { connection, getSocket } = createConnection();
+    const snapshots = [];
+    const errors = [];
+    connection.onSnapshot((snapshot) => snapshots.push(snapshot));
+    connection.onError((error) => errors.push(error));
+
+    getSocket().emit("message", {
+        data: JSON.stringify({
+            type: "snapshot",
+            docId: "doc-1",
+            text: "hello",
+            users: [{ userId: "alice", name: "Alice" }],
+        }),
+    });
+    getSocket().emit("message", {
+        data: JSON.stringify({ type: "error", text: "invalid operation" }),
+    });
+
+    assert.deepEqual(snapshots, [
+        {
+            type: "snapshot",
+            docId: "doc-1",
+            text: "hello",
+            users: [{ userId: "alice", name: "Alice" }],
+        },
+    ]);
+    assert.deepEqual(errors, [{ type: "error", text: "invalid operation" }]);
+});

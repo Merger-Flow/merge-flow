@@ -4,16 +4,15 @@ import ReconnectingWebSocket, {
 import type { CrdtOp } from "../editor/MonacoBinding";
 import type { Cursor, PresenceUser } from "../editor/RemoteCursor";
 import { OutboundMessageQueue } from "./messageQueue.ts";
+import {
+    parseServerMessage,
+    type ErrorMessage,
+    type JoinMessage,
+    type SnapshotMessage,
+    type WsClientMessage,
+} from "./protocol.ts";
 
 export type PresenceKind = "cursor" | "presence" | "snapshot" | "leave";
-
-type WsMessage = {
-    type: "op" | PresenceKind | "error";
-    payLoad?: CrdtOp;
-    payload?: CrdtOp;
-    users?: PresenceUser[];
-    cursor?: Cursor;
-};
 
 export type WsConnectionConfig = {
     url: string;
@@ -42,6 +41,8 @@ export class WsConnection {
     private readonly presenceListeners = new Set<
         (users: PresenceUser[], kind: PresenceKind) => void
     >();
+    private readonly snapshotListeners = new Set<(snapshot: SnapshotMessage) => void>();
+    private readonly errorListeners = new Set<(error: ErrorMessage) => void>();
     private config: WsConnectionConfig;
 
     constructor(config: WsConnectionConfig, socketFactory: SocketFactory = defaultSocketFactory) {
@@ -79,9 +80,21 @@ export class WsConnection {
         return () => this.presenceListeners.delete(callback);
     }
 
+    onSnapshot(callback: (snapshot: SnapshotMessage) => void): () => void {
+        this.snapshotListeners.add(callback);
+        return () => this.snapshotListeners.delete(callback);
+    }
+
+    onError(callback: (error: ErrorMessage) => void): () => void {
+        this.errorListeners.add(callback);
+        return () => this.errorListeners.delete(callback);
+    }
+
     dispose(): void {
         this.opListeners.clear();
         this.presenceListeners.clear();
+        this.snapshotListeners.clear();
+        this.errorListeners.clear();
         this.pending.flush();
         this.socket.close();
     }
@@ -90,39 +103,33 @@ export class WsConnection {
         console.log("Web socket connected to backend");
         this.sendNow(this.joinMessage());
         for (const message of this.pending.flush()) {
-            this.sendNow(JSON.parse(message) as Record<string, unknown>);
+            this.sendNow(JSON.parse(message) as WsClientMessage);
         }
     }
 
     private handleMessage(data: string | undefined): void {
         if (!data) return;
-        try {
-            const msg: WsMessage = JSON.parse(data);
+        const msg = parseServerMessage(data);
+        if (!msg) return;
 
-            if (msg.type === "op") {
-                const op = msg.payload ?? msg.payLoad;
-                if (!op) return;
-                for (const listener of this.opListeners) listener(op);
-            } else if (
-                msg.type === "cursor" ||
-                msg.type === "presence" ||
-                msg.type === "snapshot" ||
-                msg.type === "leave"
-            ) {
-                const users = msg.users ?? [];
-                for (const listener of this.presenceListeners) listener(users, msg.type);
-            }
-        } catch (error) {
-            console.error("Failed to parse WS message", error);
+        if (msg.type === "op") {
+            for (const listener of this.opListeners) listener(msg.payload);
+        } else if (msg.type === "snapshot") {
+            for (const listener of this.snapshotListeners) listener(msg);
+            for (const listener of this.presenceListeners) listener(msg.users, msg.type);
+        } else if (msg.type === "presence" || msg.type === "cursor" || msg.type === "leave") {
+            for (const listener of this.presenceListeners) listener(msg.users, msg.type);
+        } else if (msg.type === "error") {
+            for (const listener of this.errorListeners) listener(msg);
         }
     }
 
-    private joinMessage(): Record<string, unknown> {
+    private joinMessage(): JoinMessage {
         const { documentId, userId, userName } = this.config;
         return { type: "join", docId: documentId, userId, name: userName };
     }
 
-    private sendNowOrQueue(message: Record<string, unknown>): void {
+    private sendNowOrQueue(message: WsClientMessage): void {
         if (this.socket.readyState === OPEN_STATE) {
             this.sendNow(message);
             return;
@@ -130,7 +137,7 @@ export class WsConnection {
         this.pending.enqueue(JSON.stringify(message));
     }
 
-    private sendNow(message: Record<string, unknown>): void {
+    private sendNow(message: WsClientMessage): void {
         this.socket.send(JSON.stringify(message));
     }
 }
