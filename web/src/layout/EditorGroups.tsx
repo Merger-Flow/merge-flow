@@ -5,11 +5,13 @@ import { MonacoBinding, bindMonacoToReplica } from "../editor/MonacoBinding";
 import { RemoteCursorRenderer, cursorFromSelection } from "../editor/RemoteCursor";
 import { YjsReplica } from "../crdt/clientReplica";
 import { wsConnection } from "../ws/connection";
+import { usePresenceStore } from "../ws/presenceStore";
 
 export function EditorGroups() {
     const bindingRef = useRef<MonacoBinding | null>(null);
     const cursorsRef = useRef<RemoteCursorRenderer | null>(null);
     const replicaRef = useRef<YjsReplica | null>(null);
+    const { setUser, removeUser, setAllUsers } = usePresenceStore();
 
     function handleEditorDidMount(editor: monaco.editor.ICodeEditor) {
         const actorId = "user-" + Math.random().toString(36).substring(7);
@@ -18,55 +20,50 @@ export function EditorGroups() {
         const replica = new YjsReplica(actorId);
         replicaRef.current = replica;
 
-        // 1. Initialize Binding
         bindingRef.current = bindMonacoToReplica(editor, replica, (op) => {
             wsConnection.sendOp(op);
         });
 
-        // 2. Initialize Cursors
         cursorsRef.current = new RemoteCursorRenderer(editor, actorId);
 
-        // 3. Handle incoming operations
         wsConnection.onOP((op) => {
             if (op.actor !== actorId) {
                 bindingRef.current?.applyRemote(op);
             }
         });
 
-        // 4. Handle presence and snapshots
         wsConnection.onPresence((users, kind) => {
             const cursors = cursorsRef.current;
             if (!cursors) return;
+            
             if (kind === "snapshot") {
+                setAllUsers(users);
                 cursors.setAll(users);
             } else if (kind === "leave") {
-                for (const user of users) cursors.remove(user.userId);
+                for (const user of users) {
+                    removeUser(user.userId);
+                    cursors.remove(user.userId);
+                }
             } else {
-                for (const user of users) cursors.upsert(user);
-            }
-        });
-
-        // 5. Handle initial snapshot to sync text
-        wsConnection.onSnapshot((snapshot) => {
-            if (snapshot.text) {
-                // This is a simplified approach: replacing the entire text on snapshot.
-                // In a full Yjs implementation, we would apply a state vector update.
-                const currentText = replica.getText();
-                if (currentText !== snapshot.text) {
-                    // We simulate a remote update to the replica and editor
-                    // for the initial snapshot.
-                    bindingRef.current?.applyRemote({
-                        type: "insert",
-                        position: 0,
-                        text: snapshot.text,
-                        opId: "snapshot-" + Date.now(),
-                        actor: "server"
-                    });
+                for (const user of users) {
+                    setUser(user);
+                    cursors.upsert(user);
                 }
             }
         });
 
-        // 6. Setup cursor tracking
+        wsConnection.onSnapshot((snapshot) => {
+            if (snapshot.text) {
+                bindingRef.current?.applyRemote({
+                    type: "insert",
+                    position: 0,
+                    text: snapshot.text,
+                    opId: "snapshot-" + Date.now(),
+                    actor: "server"
+                });
+            }
+        });
+
         editor.onDidChangeCursorSelection(() => {
             const model = editor.getModel();
             const selection = editor.getSelection();
@@ -74,7 +71,6 @@ export function EditorGroups() {
             wsConnection.sendCursor(cursorFromSelection(model, selection));
         });
 
-        // 7. Join the document
         wsConnection.join("test-document", actorId, userName);
     }
 
